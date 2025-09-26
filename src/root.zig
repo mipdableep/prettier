@@ -2,16 +2,28 @@ const std = @import("std");
 const Writer = std.Io.Writer;
 const Error = Writer.Error;
 const defaultFmtOpts: std.fmt.Options = .{};
+const TAB: []const u8 = &[_]u8{'\t'};
 
 const Options = struct {
     maxDepth: u8 = 10,
+    indentSeq: []const u8 = TAB,
 };
 
 const Context = struct {
     depth: u8 = 0,
-    needNewLine: bool = false,
+    indent: bool = true,
     showType: bool = true,
 };
+
+pub fn indentLine(
+    w: *Writer,
+    opts: Options,
+    ctx: Context,
+) Error!void {
+    for (0..ctx.depth) |_| {
+        try w.writeAll(opts.indentSeq);
+    }
+}
 
 pub fn prettyPrintValue(
     w: *Writer,
@@ -22,16 +34,11 @@ pub fn prettyPrintValue(
     const T = @TypeOf(value);
     // TODO: add newline and indent if not top
     // TODO: add type
+
+    if (ctx.showType) try w.print("{s}: ", .{@typeName(T)});
+
     var passCtx = ctx;
     passCtx.depth += 1;
-    var passCtxNoNewLine = passCtx;
-    passCtxNoNewLine.needNewLine = false;
-    var passCtxNewLine = passCtx;
-    passCtxNewLine.needNewLine = true;
-    var passCtxNoType = passCtx;
-    passCtxNoType.showType = false;
-    var passCtxNoLineType = passCtxNoNewLine;
-    passCtxNoLineType.showType = false;
 
     switch (@typeInfo(T)) {
         .float, .comptime_float => {
@@ -49,16 +56,16 @@ pub fn prettyPrintValue(
         },
         .optional => {
             if (value) |payload| {
-                return prettyPrintValue(&w, payload, opts, passCtx);
+                return prettyPrintValue(w, payload, opts, passCtx);
             } else {
                 return w.alignBufferOptions("null", defaultFmtOpts);
             }
         },
         .error_union => {
             if (value) |payload| {
-                return prettyPrintValue(&w, payload, opts, passCtx);
+                return prettyPrintValue(w, payload, opts, passCtx);
             } else |err| {
-                return prettyPrintValue(&w, err, opts, passCtx);
+                return prettyPrintValue(w, err, opts, passCtx);
             }
         },
         .error_set => {
@@ -82,7 +89,7 @@ pub fn prettyPrintValue(
                 try w.writeAll(" = ");
                 inline for (info.fields) |u_field| {
                     if (value == @field(UnionTagType, u_field.name)) {
-                        try prettyPrintValue(&w, @field(value, u_field.name), opts, passCtxNoNewLine);
+                        try prettyPrintValue(w, @field(value, u_field.name), opts, passCtx);
                     }
                 }
                 try w.writeAll(" }");
@@ -97,15 +104,18 @@ pub fn prettyPrintValue(
                         try w.writeByte('.');
                         try w.writeAll(field.name);
                         try w.writeAll(" = ");
-                        try prettyPrintValue(&w, @field(value, field.name), opts, passCtx);
+                        try prettyPrintValue(w, @field(value, field.name), opts, passCtx);
                         try w.writeAll(if (i < info.fields.len) ", " else " }");
                     }
                 },
             }
         },
         .@"struct" => |info| {
+            var pctx = passCtx;
+            pctx.showType = false;
+            pctx.indent = false;
             if (info.is_tuple) {
-                try w.writeAll(".{");
+                try w.writeAll(".{ ");
                 inline for (info.fields, 0..) |f, i| {
                     if (i == 0) {
                         try w.writeAll(" ");
@@ -121,22 +131,20 @@ pub fn prettyPrintValue(
                 try w.writeAll(".{ ... }");
                 return;
             }
-            try w.writeAll(".{");
+            try w.writeAll(".{\n");
             inline for (info.fields) |f| {
-                w.print(".{s}: {} = ", .{ f.name, @typeName(f.type) });
-                try prettyPrintValue(&w, @field(value, f.name), opts, passCtxNoLineType);
-                try w.writeAll(",");
+                try indentLine(w, opts, passCtx);
+                try w.print(".{s}: {s} = ", .{ f.name, @typeName(f.type) });
+                try prettyPrintValue(w, @field(value, f.name), opts, pctx);
+                try w.writeAll(",\n");
             }
-            try w.writeAll("\n");
-            for (0..ctx.depth) |_| {
-                try w.writeAll("\t");
-            }
+            try indentLine(w, opts, ctx);
             try w.writeAll("}");
         },
         .pointer => |ptr_info| switch (ptr_info.size) {
             .one => switch (@typeInfo(ptr_info.child)) {
-                .array => |array_info| return prettyPrintValue(&w, fmt @as([]const array_info.child, value), max_depth),
-                .@"enum", .@"union", .@"struct" => return prettyPrintValue(&w, fmt, defaultFmtOpts, value.*, max_depth),
+                .array => |array_info| return prettyPrintValue(w, @as([]const array_info.child, value), opts, passCtx),
+                .@"enum", .@"union", .@"struct" => return prettyPrintValue(w, value.*, opts, passCtx),
                 else => {
                     var buffers: [2][]const u8 = .{ @typeName(ptr_info.child), "@" };
                     try w.writeVecAll(&buffers);
@@ -145,53 +153,46 @@ pub fn prettyPrintValue(
                 },
             },
             .many, .c => {
-                if (!is_any) @compileError("cannot format pointer without a specifier (i.e. {s} or {*})");
-                optionsForbidden(defaultFmtOpts);
                 try w.printAddress(value);
             },
             .slice => {
-                if (!is_any)
-                    @compileError("cannot format slice without a specifier (i.e. {s}, {x}, {b64}, or {any})");
-                if (max_depth == 0) return w.writeAll("{ ... }");
+                if (ctx.depth == opts.maxDepth) return w.writeAll("{ ... }");
                 try w.writeAll("{ ");
-                for (value, 0..) |elem, i| {
-                    try prettyPrintValue(&w, fmt, defaultFmtOpts, elem, max_depth - 1);
-                    if (i != value.len - 1) {
-                        try w.writeAll(", ");
-                    }
+                for (value) |elem| {
+                    try prettyPrintValue(w, elem, opts, passCtx);
+                    try w.writeAll(",");
                 }
                 try w.writeAll(" }");
             },
         },
         .array => {
-            if (!is_any) @compileError("cannot format array without a specifier (i.e. {s} or {any})");
-            if (max_depth == 0) return w.writeAll("{ ... }");
+            if (ctx.depth == opts.maxDepth) return w.writeAll("{ ... }");
             try w.writeAll("{ ");
-            for (value, 0..) |elem, i| {
-                try prettyPrintValue(&w, fmt, defaultFmtOpts, elem, max_depth - 1);
-                if (i < value.len - 1) {
-                    try w.writeAll(", ");
-                }
+            for (value) |elem| {
+                try prettyPrintValue(w, elem, opts, passCtx);
+                try w.writeAll(",");
             }
             try w.writeAll(" }");
         },
-        .vector => {
-            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
-            return printVector(w, fmt, defaultFmtOpts, value, max_depth);
+        .vector => |vec| {
+            const len = @typeInfo(@TypeOf(vec)).vector.len;
+            if (ctx.depth == opts.maxDepth) return w.writeAll("{ ... }");
+            try w.writeAll("{ ");
+            inline for (0..len) |i| {
+                try prettyPrintValue(w, value[i], opts, passCtx);
+                try w.writeAll(", ");
+            }
+            try w.writeAll(" }");
         },
         .@"fn" => @compileError("unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
         .type => {
-            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             return w.alignBufferOptions(@typeName(value), defaultFmtOpts);
         },
         .enum_literal => {
-            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
-            optionsForbidden(defaultFmtOpts);
             var vecs: [2][]const u8 = .{ ".", @tagName(value) };
             return w.writeVecAll(&vecs);
         },
         .null => {
-            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             return w.alignBufferOptions("null", defaultFmtOpts);
         },
         else => @compileError("unable to format type '" ++ @typeName(T) ++ "'"),

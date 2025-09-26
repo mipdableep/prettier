@@ -1,4 +1,5 @@
 .{
+    .fingerprint = 0xe3341f8b4e2faa77,
     .name = .prettier,
     .version = "0.0.0",
     .minimum_zig_version = "0.15.1",

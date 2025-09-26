@@ -4,23 +4,20 @@ const _ = std.Io.Writer;
 
 const Alloc = std.mem.Allocator;
 const gpa = std.heap.page_allocator;
+const TAB: []const u8 = &[_]u8{ ' ', ' ' };
 
 pub fn main() !void {
     // const val_T = @TypeOf(val);
     // const val_name = @typeName(val_T);
     // const val_info = @typeInfo(val_T);
+    const P = Prettify.init(gpa);
 
-    var buff: std.ArrayList(u8) = try std.ArrayList(u8).initCapacity(gpa, 1);
-    defer buff.deinit(gpa);
-    buff.appendAssumeCapacity('a');
-    try buff.appendSlice(gpa, "tester");
+    // const opts: Options = .{};
 
-    std.debug.print("{s}\n", .{buff.items});
-    std.debug.print("{}, {}\n", .{ buff.items.len, buff.capacity });
-
-    var P: Prettify = try Prettify.init(gpa);
-    try P.pushObjBuffRec(&P, .{ .indent = 0 });
-    std.debug.print("{s}", .{P.buff.items});
+    var buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    try prettier.prettyPrintValue(&stdout_writer.interface, P, .{ .indentSeq = TAB }, .{});
+    try stdout_writer.interface.flush();
 }
 
 const Options = struct {
@@ -36,7 +33,7 @@ const Prettify = struct {
     buff: std.Io.Writer.Allocating,
 
     const Self = @This();
-    fn init(alloc: Alloc) Alloc.Error!Self {
+    fn init(alloc: Alloc) !Self {
         const ret: @This() = @This(){ .alloc = alloc, .buff = try std.Io.Writer.Allocating.initCapacity(alloc, 512) };
         return ret;
     }
@@ -45,13 +42,13 @@ const Prettify = struct {
         s.buff.deinit(s.alloc);
     }
 
-    fn pushObjBuffRec(s: *Self, obj: anytype, ctx: Context) Alloc.Error!void {
+    fn pushObjBuffRec(s: *Self, obj: anytype, ctx: Context) !void {
         const type_T = @TypeOf(obj);
         const info_T = @typeInfo(type_T);
         for (0..ctx.indent) |_| {
-            try s.buff.writer.print("{}", .{"\t"});
+            try s.buff.writer.print("{s}", .{"\t"});
         }
-        s.buff.writer.print("{}", .{@typeName(type_T)});
+        try s.buff.writer.print("{s}", .{@typeName(type_T)});
 
         _ = info_T;
     }
