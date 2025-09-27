@@ -4,12 +4,14 @@ const Error = Writer.Error;
 const defaultFmtOpts: std.fmt.Options = .{};
 const TAB: []const u8 = &[_]u8{'\t'};
 
-const Options = struct {
+pub const Options = struct {
     maxDepth: u8 = 10,
     indentSeq: []const u8 = TAB,
+    u8BuffIsString: bool = true,
+    showTypes: bool = true,
 };
 
-const Context = struct {
+pub const Context = struct {
     depth: u8 = 0,
     indent: bool = true,
     showType: bool = true,
@@ -29,11 +31,20 @@ pub fn prettyPrintValue(
     w: *Writer,
     value: anytype,
     opts: Options,
+) Error!void {
+    var ctx: Context = .{};
+    if (!opts.showTypes) ctx.showType = false;
+    try prettyPrintValue_rec(w, value, opts, ctx);
+}
+
+pub fn prettyPrintValue_rec(
+    w: *Writer,
+    value: anytype,
+    opts: Options,
     ctx: Context,
 ) Error!void {
     const T = @TypeOf(value);
     // TODO: add newline and indent if not top
-    // TODO: add type
 
     if (ctx.showType) try w.print("{s}: ", .{@typeName(T)});
 
@@ -56,16 +67,16 @@ pub fn prettyPrintValue(
         },
         .optional => {
             if (value) |payload| {
-                return prettyPrintValue(w, payload, opts, passCtx);
+                return prettyPrintValue_rec(w, payload, opts, passCtx);
             } else {
                 return w.alignBufferOptions("null", defaultFmtOpts);
             }
         },
         .error_union => {
             if (value) |payload| {
-                return prettyPrintValue(w, payload, opts, passCtx);
+                return prettyPrintValue_rec(w, payload, opts, passCtx);
             } else |err| {
-                return prettyPrintValue(w, err, opts, passCtx);
+                return prettyPrintValue_rec(w, err, opts, passCtx);
             }
         },
         .error_set => {
@@ -89,7 +100,7 @@ pub fn prettyPrintValue(
                 try w.writeAll(" = ");
                 inline for (info.fields) |u_field| {
                     if (value == @field(UnionTagType, u_field.name)) {
-                        try prettyPrintValue(w, @field(value, u_field.name), opts, passCtx);
+                        try prettyPrintValue_rec(w, @field(value, u_field.name), opts, passCtx);
                     }
                 }
                 try w.writeAll(" }");
@@ -104,7 +115,7 @@ pub fn prettyPrintValue(
                         try w.writeByte('.');
                         try w.writeAll(field.name);
                         try w.writeAll(" = ");
-                        try prettyPrintValue(w, @field(value, field.name), opts, passCtx);
+                        try prettyPrintValue_rec(w, @field(value, field.name), opts, passCtx);
                         try w.writeAll(if (i < info.fields.len) ", " else " }");
                     }
                 },
@@ -122,7 +133,7 @@ pub fn prettyPrintValue(
                     } else {
                         try w.writeAll(", ");
                     }
-                    try prettyPrintValue(w, ANY, defaultFmtOpts, @field(value, f.name), passCtx);
+                    try prettyPrintValue_rec(w, ANY, defaultFmtOpts, @field(value, f.name), passCtx);
                 }
                 try w.writeAll(" }");
                 return;
@@ -134,8 +145,13 @@ pub fn prettyPrintValue(
             try w.writeAll(".{\n");
             inline for (info.fields) |f| {
                 try indentLine(w, opts, passCtx);
-                try w.print(".{s}: {s} = ", .{ f.name, @typeName(f.type) });
-                try prettyPrintValue(w, @field(value, f.name), opts, pctx);
+                if (opts.showTypes)
+                    try w.print(".{s}: {s} = ", .{ f.name, @typeName(f.type) })
+                else
+                    try w.print(".{s}: = ", .{
+                        f.name,
+                    });
+                try prettyPrintValue_rec(w, @field(value, f.name), opts, pctx);
                 try w.writeAll(",\n");
             }
             try indentLine(w, opts, ctx);
@@ -143,8 +159,8 @@ pub fn prettyPrintValue(
         },
         .pointer => |ptr_info| switch (ptr_info.size) {
             .one => switch (@typeInfo(ptr_info.child)) {
-                .array => |array_info| return prettyPrintValue(w, @as([]const array_info.child, value), opts, passCtx),
-                .@"enum", .@"union", .@"struct" => return prettyPrintValue(w, value.*, opts, passCtx),
+                .array => |array_info| return prettyPrintValue_rec(w, @as([]const array_info.child, value), opts, passCtx),
+                .@"enum", .@"union", .@"struct" => return prettyPrintValue_rec(w, value.*, opts, passCtx),
                 else => {
                     var buffers: [2][]const u8 = .{ @typeName(ptr_info.child), "@" };
                     try w.writeVecAll(&buffers);
@@ -156,10 +172,13 @@ pub fn prettyPrintValue(
                 try w.printAddress(value);
             },
             .slice => {
+                if (opts.u8BuffIsString and value.len > 0 and @TypeOf(value[0]) == @TypeOf(@as(u8, 0))) {
+                    return w.print("\"{s}\"", .{value});
+                }
                 if (ctx.depth == opts.maxDepth) return w.writeAll("{ ... }");
                 try w.writeAll("{ ");
                 for (value) |elem| {
-                    try prettyPrintValue(w, elem, opts, passCtx);
+                    try prettyPrintValue_rec(w, elem, opts, passCtx);
                     try w.writeAll(",");
                 }
                 try w.writeAll(" }");
@@ -169,7 +188,7 @@ pub fn prettyPrintValue(
             if (ctx.depth == opts.maxDepth) return w.writeAll("{ ... }");
             try w.writeAll("{ ");
             for (value) |elem| {
-                try prettyPrintValue(w, elem, opts, passCtx);
+                try prettyPrintValue_rec(w, elem, opts, passCtx);
                 try w.writeAll(",");
             }
             try w.writeAll(" }");
@@ -179,7 +198,7 @@ pub fn prettyPrintValue(
             if (ctx.depth == opts.maxDepth) return w.writeAll("{ ... }");
             try w.writeAll("{ ");
             inline for (0..len) |i| {
-                try prettyPrintValue(w, value[i], opts, passCtx);
+                try prettyPrintValue_rec(w, value[i], opts, passCtx);
                 try w.writeAll(", ");
             }
             try w.writeAll(" }");
