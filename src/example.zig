@@ -32,6 +32,8 @@ pub fn main() !void {
     try stdout_writer.interface.writeAll("\nprettier opts: ");
     try prettier.prettyPrintValue(&stdout_writer.interface, opts, opts);
     try stdout_writer.interface.flush();
+
+    try prettier.prettyToFile(.stderr(), opts, opts);
 }
 
 const testerStruct = struct {

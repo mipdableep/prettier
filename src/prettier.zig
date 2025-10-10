@@ -27,6 +27,22 @@ fn indentLine(
     }
 }
 
+pub fn prettyToFile(
+    f: std.fs.File,
+    value: anytype,
+    opts: Options,
+) Error!void {
+    var buf: [1024]u8 = undefined;
+    var writer = f.writer(&buf);
+    try prettyPrintValue_rec(
+        &writer.interface,
+        value,
+        opts,
+        .{ .showType = opts.showTypes },
+    );
+    return writer.interface.flush();
+}
+
 pub fn prettyPrintValue(
     w: *Writer,
     value: anytype,
