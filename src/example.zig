@@ -4,14 +4,11 @@ const _ = std.Io.Writer;
 
 const Alloc = std.mem.Allocator;
 const gpa = std.heap.page_allocator;
-const TAB: []const u8 = &[_]u8{ ' ', ' ' };
 
 pub fn main() !void {
     // const tester = try testerStruct.init(gpa);
     const t: prettier.Options = .{};
-    const opts: prettier.Options = .{
-        .indentSeq = TAB,
-    };
+    const opts: prettier.Options = .{ .indentSeq = prettier.TABS.s2 };
 
     // const opts: Options = .{};
     const val = .{

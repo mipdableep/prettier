@@ -2,11 +2,16 @@ const std = @import("std");
 const Writer = std.Io.Writer;
 const Error = Writer.Error;
 const defaultFmtOpts: std.fmt.Options = .{};
-const TAB: []const u8 = &[_]u8{'\t'};
+
+pub const TABS = struct {
+    pub const t: []const u8 = &[_]u8{'\t'};
+    pub const s2: []const u8 = &[_]u8{ ' ', ' ' };
+    pub const s4: []const u8 = &[_]u8{' ' ** 4};
+};
 
 pub const Options = struct {
     maxDepth: u8 = 10,
-    indentSeq: []const u8 = TAB,
+    indentSeq: []const u8 = TABS.s2,
     u8BuffIsString: bool = true,
     showTypes: bool = true,
 };
