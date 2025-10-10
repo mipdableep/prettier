@@ -148,14 +148,18 @@ fn prettyPrintValue_rec(
             if (info.is_tuple) {
                 _ = try w.write(".{ ");
                 inline for (info.fields, 0..) |f, i| {
-                    if (i == 0) {
-                        _ = try w.write(" ");
-                    } else {
-                        _ = try w.write(", ");
-                    }
-                    try prettyPrintValue_rec(w, ANY, defaultFmtOpts, @field(value, f.name), passCtx);
+                    try indentLine(w, opts.indentSeq, passCtx);
+                    if (opts.showTypes)
+                        try w.print(".[{d}]: {s} = ", .{ i, @typeName(f.type) })
+                    else
+                        try w.print(".[{d}] = ", .{
+                            i,
+                        });
+                    try prettyPrintValue_rec(w, @field(value, f.name), opts, pctx);
+                    _ = try w.write(",\n");
                 }
-                _ = try w.write(" }");
+                try indentLine(w, opts.indentSeq, passCtx);
+                _ = try w.write(" },\n");
                 return;
             }
             if (ctx.depth == opts.maxDepth) {
@@ -168,7 +172,7 @@ fn prettyPrintValue_rec(
                 if (opts.showTypes)
                     try w.print(".{s}: {s} = ", .{ f.name, @typeName(f.type) })
                 else
-                    try w.print(".{s}: = ", .{
+                    try w.print(".{s} = ", .{
                         f.name,
                     });
                 try prettyPrintValue_rec(w, @field(value, f.name), opts, pctx);
