@@ -5,14 +5,14 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const mod = b.addModule("prettier", .{
-        .root_source_file = b.path("src/root.zig"),
+        .root_source_file = b.path("src/prettier.zig"),
         .target = target,
     });
 
     const exe = b.addExecutable(.{
-        .name = "prettier",
+        .name = "example",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+            .root_source_file = b.path("src/example.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{

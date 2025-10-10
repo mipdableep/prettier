@@ -11,19 +11,19 @@ pub const Options = struct {
     showTypes: bool = true,
 };
 
-pub const Context = struct {
+const Context = struct {
     depth: u8 = 0,
     indent: bool = true,
-    showType: bool = true,
+    showType: bool,
 };
 
-pub fn indentLine(
+fn indentLine(
     w: *Writer,
-    opts: Options,
+    indent: []const u8,
     ctx: Context,
 ) Error!void {
     for (0..ctx.depth) |_| {
-        try w.writeAll(opts.indentSeq);
+        _ = try w.write(indent);
     }
 }
 
@@ -32,12 +32,15 @@ pub fn prettyPrintValue(
     value: anytype,
     opts: Options,
 ) Error!void {
-    var ctx: Context = .{};
-    if (!opts.showTypes) ctx.showType = false;
-    try prettyPrintValue_rec(w, value, opts, ctx);
+    try prettyPrintValue_rec(
+        w,
+        value,
+        opts,
+        .{ .showType = opts.showTypes },
+    );
 }
 
-pub fn prettyPrintValue_rec(
+fn prettyPrintValue_rec(
     w: *Writer,
     value: anytype,
     opts: Options,
@@ -50,6 +53,7 @@ pub fn prettyPrintValue_rec(
 
     var passCtx = ctx;
     passCtx.depth += 1;
+    passCtx.showType = opts.showTypes;
 
     switch (@typeInfo(T)) {
         .float, .comptime_float => {
@@ -91,32 +95,32 @@ pub fn prettyPrintValue_rec(
         },
         .@"union" => |info| {
             if (ctx.depth == opts.maxDepth) {
-                try w.writeAll(".{ ... }");
+                _ = try w.write(".{ ... }");
                 return;
             }
             if (info.tag_type) |UnionTagType| {
-                try w.writeAll(".{ .");
-                try w.writeAll(@tagName(@as(UnionTagType, value)));
-                try w.writeAll(" = ");
+                _ = try w.write(".{ .");
+                _ = try w.write(@tagName(@as(UnionTagType, value)));
+                _ = try w.write(" = ");
                 inline for (info.fields) |u_field| {
                     if (value == @field(UnionTagType, u_field.name)) {
                         try prettyPrintValue_rec(w, @field(value, u_field.name), opts, passCtx);
                     }
                 }
-                try w.writeAll(" }");
+                _ = try w.write(" }");
             } else switch (info.layout) {
                 .auto => {
                     return w.writeAll(".{ ... }");
                 },
                 .@"extern", .@"packed" => {
                     if (info.fields.len == 0) return w.writeAll(".{}");
-                    try w.writeAll(".{ ");
+                    _ = try w.write(".{ ");
                     inline for (info.fields, 1..) |field, i| {
                         try w.writeByte('.');
-                        try w.writeAll(field.name);
-                        try w.writeAll(" = ");
+                        _ = try w.write(field.name);
+                        _ = try w.write(" = ");
                         try prettyPrintValue_rec(w, @field(value, field.name), opts, passCtx);
-                        try w.writeAll(if (i < info.fields.len) ", " else " }");
+                        _ = try w.write(if (i < info.fields.len) ", " else " }");
                     }
                 },
             }
@@ -126,25 +130,25 @@ pub fn prettyPrintValue_rec(
             pctx.showType = false;
             pctx.indent = false;
             if (info.is_tuple) {
-                try w.writeAll(".{ ");
+                _ = try w.write(".{ ");
                 inline for (info.fields, 0..) |f, i| {
                     if (i == 0) {
-                        try w.writeAll(" ");
+                        _ = try w.write(" ");
                     } else {
-                        try w.writeAll(", ");
+                        _ = try w.write(", ");
                     }
                     try prettyPrintValue_rec(w, ANY, defaultFmtOpts, @field(value, f.name), passCtx);
                 }
-                try w.writeAll(" }");
+                _ = try w.write(" }");
                 return;
             }
             if (ctx.depth == opts.maxDepth) {
-                try w.writeAll(".{ ... }");
+                _ = try w.write(".{ ... }");
                 return;
             }
-            try w.writeAll(".{\n");
+            _ = try w.write(".{\n");
             inline for (info.fields) |f| {
-                try indentLine(w, opts, passCtx);
+                try indentLine(w, opts.indentSeq, passCtx);
                 if (opts.showTypes)
                     try w.print(".{s}: {s} = ", .{ f.name, @typeName(f.type) })
                 else
@@ -152,10 +156,10 @@ pub fn prettyPrintValue_rec(
                         f.name,
                     });
                 try prettyPrintValue_rec(w, @field(value, f.name), opts, pctx);
-                try w.writeAll(",\n");
+                _ = try w.write(",\n");
             }
-            try indentLine(w, opts, ctx);
-            try w.writeAll("}");
+            try indentLine(w, opts.indentSeq, ctx);
+            _ = try w.write("}");
         },
         .pointer => |ptr_info| switch (ptr_info.size) {
             .one => switch (@typeInfo(ptr_info.child)) {
@@ -175,33 +179,42 @@ pub fn prettyPrintValue_rec(
                 if (opts.u8BuffIsString and value.len > 0 and @TypeOf(value[0]) == @TypeOf(@as(u8, 0))) {
                     return w.print("\"{s}\"", .{value});
                 }
-                if (ctx.depth == opts.maxDepth) return w.writeAll("{ ... }");
-                try w.writeAll("{ ");
+                if (ctx.depth == opts.maxDepth) {
+                    _ = try w.writeAll("{ ... }");
+                    return;
+                }
+                _ = try w.write("{ ");
                 for (value) |elem| {
                     try prettyPrintValue_rec(w, elem, opts, passCtx);
-                    try w.writeAll(",");
+                    _ = try w.write(",");
                 }
-                try w.writeAll(" }");
+                _ = try w.write(" }");
             },
         },
         .array => {
-            if (ctx.depth == opts.maxDepth) return w.writeAll("{ ... }");
-            try w.writeAll("{ ");
+            if (ctx.depth == opts.maxDepth) {
+                _ = try w.write("{ ... }");
+                return;
+            }
+            _ = try w.write("{ ");
             for (value) |elem| {
                 try prettyPrintValue_rec(w, elem, opts, passCtx);
-                try w.writeAll(",");
+                _ = try w.write(",");
             }
-            try w.writeAll(" }");
+            _ = try w.write(" }");
         },
         .vector => |vec| {
             const len = @typeInfo(@TypeOf(vec)).vector.len;
-            if (ctx.depth == opts.maxDepth) return w.writeAll("{ ... }");
-            try w.writeAll("{ ");
+            if (ctx.depth == opts.maxDepth) {
+                _ = try w.writeAll("{ ... }");
+                return;
+            }
+            _ = try w.write("{ ");
             inline for (0..len) |i| {
                 try prettyPrintValue_rec(w, value[i], opts, passCtx);
-                try w.writeAll(", ");
+                _ = try w.write(", ");
             }
-            try w.writeAll(" }");
+            _ = try w.write(" }");
         },
         .@"fn" => @compileError("unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
         .type => {

@@ -9,10 +9,21 @@ const TAB: []const u8 = &[_]u8{ ' ', ' ' };
 pub fn main() !void {
     // const tester = try testerStruct.init(gpa);
     const t: prettier.Options = .{};
-    const opts: prettier.Options = .{ .indentSeq = TAB };
+    const opts: prettier.Options = .{
+        .indentSeq = TAB,
+    };
 
     // const opts: Options = .{};
-    const val = .{ .a = .{ .b = 0, .c = t }, .d = std.Io.AnyReader, .easdfwlkwejlrjlkwejflkjasdasdfiasidfo = .{ .f = .{ .grgarrmrmrmrm = 5000000000 } } };
+    const val = .{
+        .a = .{
+            .b = 0,
+            .c = t,
+        },
+        .d = std.Io.AnyReader,
+        .easdfwlkwejlrjlkwejflkjasdasdfiasidfo = .{
+            .f = .{ .grgarrmrmrmrm = 5000000000 },
+        },
+    };
 
     var buffer: [1024]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&buffer);
